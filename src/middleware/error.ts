@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import { ZodError } from 'zod';
+import multer from 'multer';
 import { Prisma } from '../lib/prisma';
 import { isAppError } from '../errors/AppError';
 import { logger } from '../lib/logger';
@@ -36,6 +37,12 @@ export function errorHandler(
         details: err.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
       },
     });
+    return;
+  }
+
+  if (err instanceof multer.MulterError) {
+    const message = err.code === 'LIMIT_FILE_SIZE' ? 'File too large (max 2MB)' : err.message;
+    res.status(422).json({ error: { code: 'validation_error', message } });
     return;
   }
 

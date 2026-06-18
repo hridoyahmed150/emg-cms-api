@@ -1,0 +1,29 @@
+meta {
+  name: Create Consumer Token
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/v1/tokens
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{accessToken}}
+}
+
+body:json {
+  {
+    "name": "EIS-TX Astro build",
+    "scopes": ["jobs:read", "reviews:read"]
+  }
+}
+
+script:post-response {
+  if (res.body && res.body.token) {
+    bru.setEnvVar("consumerToken", res.body.token);
+    bru.setEnvVar("tokenId", res.body.id);
+  }
+}

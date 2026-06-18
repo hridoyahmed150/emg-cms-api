@@ -1,11 +1,22 @@
 import 'dotenv/config';
-import express, { type Request, type Response, type NextFunction } from 'express';
+import express, { type Request, type Response } from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import pinoHttp from 'pino-http';
 import { env } from './config/env';
 import { logger } from './lib/logger';
+import { errorHandler, notFoundHandler } from './middleware/error';
+import { authRoutes } from './routes/auth.routes';
+import { jobRoutes } from './routes/job.routes';
+import { reviewRoutes } from './routes/review.routes';
+import { tokenRoutes } from './routes/token.routes';
+import { publicRoutes } from './routes/public.routes';
+import { organizationRoutes } from './routes/organization.routes';
+import { userRoutes } from './routes/user.routes';
+import { uploadRoutes } from './routes/upload.routes';
+import { deliveryJobsRoutes } from './routes/deliveryJobs.routes';
+import { startDeliveryWorker } from './delivery/worker';
 
 /** Build the Express app. Exported so tests can mount it without binding a port. */
 export function createApp() {
@@ -22,20 +33,18 @@ export function createApp() {
     res.json({ status: 'ok', env: env.NODE_ENV });
   });
 
-  // API routes are mounted here in later steps, e.g.:
-  //   app.use('/api/v1/auth', authRoutes);
-  //   app.use('/api/v1/jobs', jobsRoutes);
+  app.use('/api/v1/auth', authRoutes);
+  app.use('/api/v1/jobs', jobRoutes);
+  app.use('/api/v1/reviews', reviewRoutes);
+  app.use('/api/v1/tokens', tokenRoutes);
+  app.use('/api/v1/public', publicRoutes);
+  app.use('/api/v1/organizations', organizationRoutes);
+  app.use('/api/v1/users', userRoutes);
+  app.use('/api/v1/uploads', uploadRoutes);
+  app.use('/api/v1/delivery-jobs', deliveryJobsRoutes);
 
-  // 404 fallback
-  app.use((_req: Request, res: Response) => {
-    res.status(404).json({ error: { code: 'not_found', message: 'Route not found' } });
-  });
-
-  // Final error handler (replaced by the errors/ module once it exists).
-  app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
-    logger.error({ err }, 'Unhandled error');
-    res.status(500).json({ error: { code: 'internal_error', message: 'Something went wrong' } });
-  });
+  app.use(notFoundHandler);
+  app.use(errorHandler);
 
   return app;
 }
@@ -45,4 +54,5 @@ if (require.main === module) {
   app.listen(env.PORT, () => {
     logger.info(`emg-cms-api listening on http://localhost:${env.PORT}`);
   });
+  startDeliveryWorker();
 }

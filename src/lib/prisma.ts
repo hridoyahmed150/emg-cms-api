@@ -26,9 +26,19 @@ export interface TenantContext {
 
 export const tenantContext = new AsyncLocalStorage<TenantContext>();
 
-/** Run `fn` with a tenant context active. All tenant-scoped queries inside are auto-filtered. */
+/**
+ * Run `fn` with a tenant context active. All tenant-scoped queries inside are
+ * auto-filtered.
+ *
+ * NOTE: we `await fn()` *inside* the ALS scope. Prisma promises are lazy — their
+ * execution (and our extension callback) fires when the promise is awaited. If we
+ * returned the un-awaited promise, that execution would happen outside this scope
+ * and lose the tenant context. Awaiting here keeps the context attached.
+ */
 export function withTenant<T>(ctx: TenantContext, fn: () => Promise<T>): Promise<T> {
-  return tenantContext.run(ctx, fn);
+  return tenantContext.run(ctx, async () => {
+    return await fn();
+  });
 }
 
 /** Models that carry an `organizationId` and must be tenant-filtered. */
@@ -42,14 +52,24 @@ const WHERE_INJECT_OPS = new Set<string>([
   'count',
   'aggregate',
   'groupBy',
-  'update',
   'updateMany',
-  'delete',
   'deleteMany',
 ]);
 
-/** Operations that cannot be safely auto-scoped on tenant models. */
-const FORBIDDEN_OPS = new Set<string>(['findUnique', 'findUniqueOrThrow', 'upsert']);
+/**
+ * Operations that cannot be safely auto-scoped on tenant models:
+ *  - findUnique/findUniqueOrThrow + upsert: take unique selectors that can't carry a
+ *    loose organizationId filter.
+ *  - single update/delete: same — their `where` is a unique selector. Services must use
+ *    updateMany/deleteMany (which DO get the tenant filter) + a row-count check.
+ */
+const FORBIDDEN_OPS = new Set<string>([
+  'findUnique',
+  'findUniqueOrThrow',
+  'upsert',
+  'update',
+  'delete',
+]);
 
 const basePrisma = new PrismaClient({
   log: env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'],
@@ -83,7 +103,7 @@ export const prisma = basePrisma.$extends({
         if (FORBIDDEN_OPS.has(operation)) {
           throw new Error(
             `Tenant isolation: ${operation} is not allowed on ${model}. ` +
-              'Use findFirst (+ create/update) with the tenant filter instead.',
+              'Use findFirst / updateMany / deleteMany (auto tenant-filtered) instead.',
           );
         }
 

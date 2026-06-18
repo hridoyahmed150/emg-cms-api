@@ -1,0 +1,35 @@
+meta {
+  name: Create Review
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/v1/reviews
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{accessToken}}
+}
+
+body:json {
+  {
+    "name": "Jane Smith",
+    "avatar": "https://lh3.googleusercontent.com/a/jane.jpg",
+    "rating": 5,
+    "text": "Excellent service, highly recommend!",
+    "time": 1781740000000,
+    "reviewUrl": "https://g.co/r/abc123",
+    "verified": true,
+    "featured": true,
+    "meta": {}
+  }
+}
+
+script:post-response {
+  if (res.body && res.body.id) {
+    bru.setEnvVar("reviewId", res.body.id);
+  }
+}

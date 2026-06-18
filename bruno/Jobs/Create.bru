@@ -1,0 +1,33 @@
+meta {
+  name: Create Job
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/v1/jobs
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{accessToken}}
+}
+
+body:json {
+  {
+    "slug": "senior-developer",
+    "title": "Senior Developer",
+    "type": "full-time",
+    "location": "Dallas, TX",
+    "posted": "2026-06-01",
+    "status": "active",
+    "meta": {}
+  }
+}
+
+script:post-response {
+  if (res.body && res.body.id) {
+    bru.setEnvVar("jobId", res.body.id);
+  }
+}

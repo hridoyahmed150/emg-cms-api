@@ -1,0 +1,30 @@
+import { z } from 'zod';
+
+export const CreateReviewSchema = z.object({
+  name: z.string().min(1),
+  avatar: z.url().optional(),
+  rating: z.coerce.number().int().min(1).max(5),
+  text: z.string().min(1),
+  time: z.coerce.number().int().nonnegative().optional(), // unix ms; defaults to now in service
+  featured: z.boolean().default(false),
+  verified: z.boolean().default(true),
+  reviewUrl: z.url().optional(),
+  // Client-specific fields (hybrid). Deep-validated in the service against org customFields.
+  meta: z.record(z.string(), z.unknown()).default({}),
+});
+export type CreateReviewInput = z.infer<typeof CreateReviewSchema>;
+
+export const UpdateReviewSchema = CreateReviewSchema.partial();
+export type UpdateReviewInput = z.infer<typeof UpdateReviewSchema>;
+
+export const ListReviewsQuerySchema = z.object({
+  featured: z
+    .enum(['true', 'false'])
+    .transform((v) => v === 'true')
+    .optional(),
+  minRating: z.coerce.number().int().min(1).max(5).optional(),
+  q: z.string().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+export type ListReviewsQuery = z.infer<typeof ListReviewsQuerySchema>;

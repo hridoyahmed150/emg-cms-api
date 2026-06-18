@@ -1,0 +1,22 @@
+meta {
+  name: Update Review
+  type: http
+  seq: 4
+}
+
+patch {
+  url: {{baseUrl}}/api/v1/reviews/{{reviewId}}
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{accessToken}}
+}
+
+body:json {
+  {
+    "featured": false,
+    "rating": 4
+  }
+}

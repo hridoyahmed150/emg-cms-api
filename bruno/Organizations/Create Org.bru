@@ -1,0 +1,34 @@
+meta {
+  name: Create Org
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/v1/organizations
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{accessToken}}
+}
+
+body:json {
+  {
+    "slug": "acme-corp",
+    "name": "Acme Corp",
+    "deliveryTarget": "WORDPRESS_PULL",
+    "config": { "siteUrl": "https://acme.com" },
+    "features": { "jobs": true, "reviews": true },
+    "customFields": {
+      "jobs": [{ "key": "salary", "label": "Salary", "type": "string", "required": false }]
+    }
+  }
+}
+
+script:post-response {
+  if (res.body && res.body.id) {
+    bru.setEnvVar("orgId", res.body.id);
+  }
+}
