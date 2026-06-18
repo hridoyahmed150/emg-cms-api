@@ -1,0 +1,182 @@
+// EMG Agency CMS — Prisma schema
+// Hybrid data-shape (core typed columns + `meta` Json per resource) + pull/API-first delivery.
+// Tenant-scoped models (Job, Review, Upload, SyncJob, AuditLog) are auto-filtered by
+// organizationId via the Prisma client extension in src/lib/prisma.ts (7-layer isolation).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tenancy + identity
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum DeliveryTarget {
+  ASTRO_PULL
+  WORDPRESS_PULL
+}
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  // Extensible: EDITOR, VIEWER, ... (add here + ROLE_PERMISSIONS, no data migration of existing rows)
+}
+
+enum TokenType {
+  USER // dashboard / programmatic tokens tied to a user
+  CONSUMER // read-only, org-scoped tokens for pull consumers (Astro build, WP plugin)
+}
+
+model Organization {
+  id             Int            @id @default(autoincrement())
+  slug           String         @unique
+  name           String
+  deliveryTarget DeliveryTarget
+  // Pull delivery config (shape depends on deliveryTarget):
+  //   ASTRO_PULL:     { "buildHookUrl": "https://app.cloudcannon.com/..." }
+  //   WORDPRESS_PULL: { "siteUrl": "...", "cacheBustUrl": "...", "cacheBustSecretEncrypted": "..." }
+  config         Json           @default("{}")
+  // Per-resource enablement, e.g. { "jobs": true, "reviews": true, "faqs": false }
+  features       Json           @default("{}")
+  // Hybrid meta-field definitions, drives dynamic validation + form UI:
+  //   { "jobs": [{ "key": "salary", "label": "Salary", "type": "string", "required": false }], ... }
+  customFields   Json           @default("{}")
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  users     User[]
+  jobs      Job[]
+  reviews   Review[]
+  uploads   Upload[]
+  syncJobs  SyncJob[]
+  apiTokens ApiToken[]
+}
+
+model User {
+  id             Int           @id @default(autoincrement())
+  email          String        @unique
+  passwordHash   String
+  name           String
+  role           Role
+  organizationId Int? // null for SUPER_ADMIN
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+  apiTokens      ApiToken[]
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([organizationId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tenant-scoped resources (auto-filtered by organizationId)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Job {
+  id             Int          @id @default(autoincrement())
+  organizationId Int
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  slug           String
+  title          String
+  type           String // 'full-time' | 'part-time' | 'contract'
+  location       String
+  posted         DateTime
+  status         String       @default("active") // 'active' | 'expired' | 'draft'
+  meta           Json         @default("{}") // hybrid: client-specific fields
+  updatedAt      DateTime     @updatedAt
+  createdAt      DateTime     @default(now())
+
+  @@unique([organizationId, slug])
+  @@index([organizationId])
+}
+
+model Review {
+  id             Int          @id @default(autoincrement())
+  organizationId Int
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  name           String
+  avatar         String? // R2 public URL
+  rating         Int
+  text           String
+  time           BigInt // unix timestamp (ms)
+  featured       Boolean      @default(false)
+  verified       Boolean      @default(true)
+  reviewUrl      String?
+  meta           Json         @default("{}") // hybrid: client-specific fields
+  updatedAt      DateTime     @updatedAt
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId])
+}
+
+model Upload {
+  id             Int          @id @default(autoincrement())
+  organizationId Int
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  uploadedBy     Int? // user id; nullable for system uploads
+  r2Key          String       @unique // 'orgs/<id>/uploads/<uuid>.jpg'
+  publicUrl      String
+  mimeType       String
+  sizeBytes      Int
+  originalName   String
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId])
+}
+
+// Delivery-trigger job: rebuild (Astro/CloudCannon) or cache-bust (WordPress plugin).
+model SyncJob {
+  id             Int          @id @default(autoincrement())
+  organizationId Int
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  collection     String // 'jobs' | 'reviews'
+  status         String // 'pending' | 'running' | 'success' | 'failed'
+  scheduledAt    DateTime
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  result         String? // e.g. build id / HTTP status
+  error          String?
+  attempts       Int          @default(0)
+
+  @@index([organizationId, status])
+  @@index([scheduledAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tokens + audit
+// ─────────────────────────────────────────────────────────────────────────────
+
+model ApiToken {
+  id             Int           @id @default(autoincrement())
+  type           TokenType     @default(USER)
+  userId         Int? // set for USER tokens
+  user           User?         @relation(fields: [userId], references: [id])
+  organizationId Int? // set for CONSUMER tokens (org-scoped read)
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+  name           String
+  tokenHash      String        @unique // SHA-256 of plaintext token
+  scopes         Json // e.g. ["jobs:read", "reviews:read"]
+  lastUsedAt     DateTime?
+  createdAt      DateTime      @default(now())
+
+  @@index([userId])
+  @@index([organizationId])
+}
+
+// Append-only audit trail. Intentionally no FK relations so logs survive row deletes.
+model AuditLog {
+  id             Int      @id @default(autoincrement())
+  organizationId Int?
+  userId         Int?
+  action         String
+  subjectType    String?
+  subjectId      Int?
+  payload        Json?
+  createdAt      DateTime @default(now())
+
+  @@index([organizationId, createdAt])
+}

@@ -1,0 +1,20 @@
+# Local development Postgres for emg-cms-api (Stage 0).
+# Usage: docker compose up -d postgres
+services:
+  postgres:
+    image: postgres:16
+    container_name: emg-cms-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: emg
+      POSTGRES_PASSWORD: dev_password
+      POSTGRES_DB: emg_cms
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U emg -d emg_cms"]
+      interval: 5s
+      timeout: 5s
+      retries: 10

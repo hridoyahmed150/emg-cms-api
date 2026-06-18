@@ -1,0 +1,15 @@
+node_modules/
+dist/
+coverage/
+
+# Local env / secrets
+.env
+.env.local
+.env.*.local
+
+# Local Postgres volume (docker-compose)
+pg-data/
+
+# Logs / OS
+*.log
+.DS_Store
