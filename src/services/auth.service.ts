@@ -47,5 +47,8 @@ export async function refresh(userId: number) {
 export async function getMe(userId: number) {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw new UnauthorizedError();
-  return toPublicUser(user);
+  const organization = user.organizationId
+    ? await prisma.organization.findUnique({ where: { id: user.organizationId } })
+    : null;
+  return { user: toPublicUser(user), organization };
 }

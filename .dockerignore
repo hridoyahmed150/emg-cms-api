@@ -1,0 +1,11 @@
+node_modules
+dist
+.env
+.env.*
+pg-data
+.git
+.gitignore
+*.log
+bruno
+tests
+coverage

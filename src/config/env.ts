@@ -32,6 +32,11 @@ const EnvSchema = z.object({
   R2_PUBLIC_BASE: z.string().optional(),
   R2_ENDPOINT: z.string().optional(),
 
+  // Google reviews ingestion (optional — only needed to auto-refresh from Google).
+  GOOGLE_MAPS_API_KEY: z.string().optional(), // Places API (New)
+  GOOGLE_OAUTH_CLIENT_ID: z.string().optional(), // GBP (Business Profile) API
+  GOOGLE_OAUTH_CLIENT_SECRET: z.string().optional(),
+
   SENTRY_DSN: z.string().optional(),
 });
 

@@ -2,7 +2,12 @@ import type { Request, Response } from 'express';
 import { validated } from '../middleware/validate';
 import * as reviewService from '../services/review.service';
 import { BadRequestError } from '../errors/AppError';
-import type { CreateReviewInput, UpdateReviewInput, ListReviewsQuery } from '../schemas/review';
+import type {
+  CreateReviewInput,
+  UpdateReviewInput,
+  ListReviewsQuery,
+  ImportReviewsInput,
+} from '../schemas/review';
 
 function requireTenant(req: Request): number {
   if (req.tenantId == null) {
@@ -42,4 +47,17 @@ export async function remove(req: Request, res: Response): Promise<void> {
   const orgId = requireTenant(req);
   await reviewService.deleteReview(orgId, parseId(req));
   res.status(204).send();
+}
+
+/** Bulk import reviews (manual seed / fallback). Deduped; returns insert summary. */
+export async function importBulk(req: Request, res: Response): Promise<void> {
+  const orgId = requireTenant(req);
+  const input = validated<ImportReviewsInput>(req, 'body');
+  res.json(await reviewService.importReviews(orgId, input.reviews));
+}
+
+/** Refresh reviews from the org's configured Google source (Places / GBP). */
+export async function refresh(req: Request, res: Response): Promise<void> {
+  const orgId = requireTenant(req);
+  res.json(await reviewService.refreshReviews(orgId));
 }

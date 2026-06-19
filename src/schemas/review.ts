@@ -28,3 +28,21 @@ export const ListReviewsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });
 export type ListReviewsQuery = z.infer<typeof ListReviewsQuerySchema>;
+
+// Bulk import (manual seed / fallback / bookmarklet output). Lenient on avatar/url
+// (external providers give long opaque URLs). `time` accepts a date string or unix ms.
+export const ImportReviewItemSchema = z.object({
+  name: z.string().min(1),
+  rating: z.coerce.number().int().min(1).max(5),
+  text: z.string().min(1),
+  time: z.union([z.string(), z.number()]).optional(),
+  avatar: z.string().optional(),
+  reviewUrl: z.string().optional(),
+  externalId: z.string().optional(), // provided → dedupe by it; else content-hash in service
+});
+export type ImportReviewItem = z.infer<typeof ImportReviewItemSchema>;
+
+export const ImportReviewsSchema = z.object({
+  reviews: z.array(ImportReviewItemSchema).min(1).max(200),
+});
+export type ImportReviewsInput = z.infer<typeof ImportReviewsSchema>;

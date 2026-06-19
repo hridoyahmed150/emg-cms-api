@@ -1,9 +1,16 @@
+import crypto from 'node:crypto';
 import type { Review } from '@prisma/client';
 import { Prisma, prisma } from '../lib/prisma';
 import { NotFoundError } from '../errors/AppError';
 import { validateResourceMeta } from './meta.helper';
 import { enqueueDelivery } from './delivery.service';
-import type { CreateReviewInput, UpdateReviewInput, ListReviewsQuery } from '../schemas/review';
+import { createReviewSource, type ReviewsConfig } from './reviewSource';
+import type {
+  CreateReviewInput,
+  UpdateReviewInput,
+  ListReviewsQuery,
+  ImportReviewItem,
+} from '../schemas/review';
 
 /** Serialize a Review for JSON (BigInt `time` -> number; safe for unix-ms range). */
 function toJson(r: Review) {
@@ -76,4 +83,103 @@ export async function deleteReview(orgId: number, id: number) {
   const res = await prisma.review.deleteMany({ where: { id } });
   if (res.count === 0) throw new NotFoundError('Review not found');
   await enqueueDelivery(orgId, 'reviews');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Ingestion: manual import (seed / fallback) + provider refresh (Places / GBP).
+// Dedupe is by (organizationId, externalId) via createMany({ skipDuplicates: true });
+// the CMS accumulates so a few-per-call API still keeps it current over cycles.
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface IngestRow {
+  organizationId: number;
+  name: string;
+  avatar: string | null;
+  rating: number;
+  text: string;
+  time: bigint;
+  reviewUrl: string | null;
+  source: string;
+  externalId: string;
+}
+
+async function insertDeduped(orgId: number, rows: IngestRow[]) {
+  const result = rows.length
+    ? await prisma.review.createMany({ data: rows, skipDuplicates: true })
+    : { count: 0 };
+  if (result.count > 0) await enqueueDelivery(orgId, 'reviews');
+  await touchLastRefreshed(orgId);
+  return { received: rows.length, inserted: result.count, skipped: rows.length - result.count };
+}
+
+/** Manual bulk import (paste JSON / bookmarklet output). Append-only + deduped. */
+export async function importReviews(orgId: number, items: ImportReviewItem[]) {
+  const rows: IngestRow[] = items.map((it) => {
+    const time = normalizeTime(it.time);
+    return {
+      organizationId: orgId,
+      name: it.name,
+      avatar: it.avatar ?? null,
+      rating: it.rating,
+      text: it.text,
+      time: BigInt(time),
+      reviewUrl: it.reviewUrl ?? null,
+      source: 'manual',
+      externalId: it.externalId ?? contentHash(it.name, time, it.text),
+    };
+  });
+  return insertDeduped(orgId, rows);
+}
+
+/** Pull the latest reviews from the org's configured provider and dedupe-insert. */
+export async function refreshReviews(orgId: number) {
+  const cfg = await getReviewsConfig(orgId);
+  const fetched = await createReviewSource(cfg).fetch();
+  const rows: IngestRow[] = fetched
+    .filter((r) => r.rating >= 1 && r.externalId)
+    .map((r) => ({
+      organizationId: orgId,
+      name: r.name,
+      avatar: r.avatar ?? null,
+      rating: r.rating,
+      text: r.text,
+      time: BigInt(r.time),
+      reviewUrl: r.reviewUrl ?? null,
+      source: cfg.source ?? 'manual',
+      externalId: r.externalId,
+    }));
+  return insertDeduped(orgId, rows);
+}
+
+function normalizeTime(t?: string | number): number {
+  if (t === undefined || t === null || t === '') return Date.now();
+  if (typeof t === 'number') return t;
+  const ms = Date.parse(t);
+  if (Number.isFinite(ms)) return ms;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : Date.now();
+}
+
+function contentHash(name: string, time: number, text: string): string {
+  return 'h:' + crypto.createHash('sha256').update(`${name}|${time}|${text}`).digest('hex').slice(0, 32);
+}
+
+/** Read `Organization.config.reviews` (Organization is NOT tenant-scoped). */
+async function getReviewsConfig(orgId: number): Promise<ReviewsConfig> {
+  const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { config: true } });
+  const config = org?.config;
+  const reviews = config && typeof config === 'object' ? (config as Record<string, unknown>).reviews : undefined;
+  return reviews && typeof reviews === 'object' ? (reviews as ReviewsConfig) : {};
+}
+
+/** Stamp `config.reviews.lastRefreshedAt = now` (drives the 15-day reminder). */
+async function touchLastRefreshed(orgId: number) {
+  const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { config: true } });
+  const config: Record<string, unknown> =
+    org?.config && typeof org.config === 'object' ? { ...(org.config as Record<string, unknown>) } : {};
+  const reviews: Record<string, unknown> =
+    config.reviews && typeof config.reviews === 'object' ? { ...(config.reviews as Record<string, unknown>) } : {};
+  reviews.lastRefreshedAt = Date.now();
+  config.reviews = reviews;
+  await prisma.organization.update({ where: { id: orgId }, data: { config: config as Prisma.InputJsonValue } });
 }

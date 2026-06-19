@@ -43,6 +43,5 @@ export async function logout(_req: Request, res: Response): Promise<void> {
 
 export async function me(req: Request, res: Response): Promise<void> {
   if (!req.auth?.userId) throw new UnauthorizedError();
-  const user = await authService.getMe(req.auth.userId);
-  res.json({ user });
+  res.json(await authService.getMe(req.auth.userId));
 }

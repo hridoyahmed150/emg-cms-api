@@ -1,0 +1,20 @@
+meta {
+  name: Delete Upload
+  type: http
+  seq: 2
+}
+
+delete {
+  url: {{baseUrl}}/api/v1/uploads/{{uploadId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{accessToken}}
+}
+
+docs {
+  Deletes the upload created by **Upload File** (uses {{uploadId}} set by its post-response
+  script). Removes the R2 object + the DB row. Returns 204.
+}

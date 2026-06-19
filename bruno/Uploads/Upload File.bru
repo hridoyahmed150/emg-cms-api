@@ -1,0 +1,32 @@
+meta {
+  name: Upload File
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/v1/uploads
+  body: multipartForm
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{accessToken}}
+}
+
+body:multipart-form {
+  file: @file(/Users/hridoyahmed/Desktop/EMG/EMG-CMS/emg-cms-api/bruno/Uploads/sample-logo.svg)
+}
+
+script:post-response {
+  if (res.body && res.body.id) {
+    bru.setEnvVar("uploadId", res.body.id);
+  }
+}
+
+docs {
+  Run **Auth/Login** first (it sets {{accessToken}}). The multipart field name MUST be `file`.
+  Allowed: jpeg/png/webp/svg, max 2MB. SVG is sanitized (scripts stripped); other types are
+  magic-byte verified. Response: { id, url, mimeType, sizeBytes } — `url` is the public R2 URL.
+  Swap the file: click the `file` row's value in the GUI and pick any image.
+}
