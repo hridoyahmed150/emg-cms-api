@@ -13,6 +13,10 @@ const EnvSchema = z.object({
     .default('info'),
   // Comma-separated list of allowed origins.
   CORS_ORIGIN: z.string().default('http://localhost:3000'),
+  // Refresh-cookie SameSite. Use 'none' when the admin web is on a DIFFERENT registrable
+  // domain than the API (e.g. *.vercel.app ↔ api.example.com) — 'none' forces Secure.
+  // Keep 'lax' when web + API share a registrable domain (cms.x / api.x).
+  COOKIE_SAMESITE: z.enum(['lax', 'none', 'strict']).default('lax'),
 
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
 

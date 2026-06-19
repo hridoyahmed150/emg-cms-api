@@ -8,10 +8,12 @@ import type { LoginInput } from '../schemas/auth';
 
 const REFRESH_COOKIE = 'emg_refresh';
 
+// SameSite=None requires Secure (browsers reject None without it). Force Secure when
+// SameSite=None (cross-site web↔API), else Secure only in production.
 const refreshCookieOpts = {
   httpOnly: true,
-  secure: env.NODE_ENV === 'production',
-  sameSite: 'lax' as const,
+  secure: env.NODE_ENV === 'production' || env.COOKIE_SAMESITE === 'none',
+  sameSite: env.COOKIE_SAMESITE,
   path: '/api/v1/auth',
   maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
 };

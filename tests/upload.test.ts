@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
+import request from 'supertest';
+import type { Role } from '@prisma/client';
 
 // Mock the R2 client so we test validation/sanitize without real Cloudflare creds.
 const { sendMock } = vi.hoisted(() => ({ sendMock: vi.fn() }));
@@ -9,6 +11,11 @@ vi.mock('../src/lib/r2', () => ({
 
 import { uploadFile } from '../src/services/upload.service';
 import { prisma, withTenant } from '../src/lib/prisma';
+import { createApp } from '../src/server';
+import { signAccessToken } from '../src/lib/jwt';
+import { hashPassword } from '../src/lib/password';
+
+const app = createApp();
 
 async function reset() {
   await prisma.$executeRawUnsafe(
@@ -92,5 +99,36 @@ describe('Upload validation & SVG sanitize', () => {
     const storedBody = String(putCommand.input.Body);
     expect(storedBody.toLowerCase()).not.toContain('<script');
     expect(storedBody).toContain('rect');
+  });
+});
+
+// Regression: multer (busboy streams) drops the AsyncLocalStorage tenant context,
+// so the controller must re-establish it with withTenant. Before that fix this POST
+// 500'd with "Upload.create ran without a tenant context". Exercise the full HTTP path.
+describe('Upload HTTP path keeps tenant context (multer + ALS)', () => {
+  it('POST /api/v1/uploads persists an Upload row through multer', async () => {
+    const org = await makeOrg();
+    const user = await prisma.user.create({
+      data: {
+        email: 'up@test.com',
+        name: 'up admin',
+        role: 'ADMIN' as Role,
+        passwordHash: await hashPassword('pw'),
+        organizationId: org.id,
+      },
+    });
+    const token = signAccessToken({ userId: user.id, role: 'ADMIN' as Role, organizationId: org.id });
+
+    const res = await request(app)
+      .post('/api/v1/uploads')
+      .set('Authorization', `Bearer ${token}`)
+      .attach('file', REAL_PNG, { filename: 'logo.png', contentType: 'image/png' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.url).toContain(`/orgs/${org.id}/uploads/`);
+    expect(sendMock).toHaveBeenCalledTimes(1);
+
+    const count = await withTenant({ tenantId: org.id, isSuper: false }, () => prisma.upload.count());
+    expect(count).toBe(1);
   });
 });
