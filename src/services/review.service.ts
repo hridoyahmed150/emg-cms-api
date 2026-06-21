@@ -3,7 +3,7 @@ import type { Review } from '@prisma/client';
 import { Prisma, prisma } from '../lib/prisma';
 import { NotFoundError } from '../errors/AppError';
 import { validateResourceMeta } from './meta.helper';
-import { enqueueDelivery } from './delivery.service';
+import { markContentChanged } from './delivery.service';
 import { createReviewSource, type ReviewsConfig } from './reviewSource';
 import type {
   CreateReviewInput,
@@ -57,7 +57,7 @@ export async function createReview(orgId: number, input: CreateReviewInput) {
       meta,
     },
   });
-  await enqueueDelivery(orgId, 'reviews');
+  await markContentChanged(orgId);
   return toJson(review);
 }
 
@@ -75,14 +75,14 @@ export async function updateReview(orgId: number, id: number, input: UpdateRevie
 
   const res = await prisma.review.updateMany({ where: { id }, data });
   if (res.count === 0) throw new NotFoundError('Review not found');
-  await enqueueDelivery(orgId, 'reviews');
+  await markContentChanged(orgId);
   return getReview(id);
 }
 
 export async function deleteReview(orgId: number, id: number) {
   const res = await prisma.review.deleteMany({ where: { id } });
   if (res.count === 0) throw new NotFoundError('Review not found');
-  await enqueueDelivery(orgId, 'reviews');
+  await markContentChanged(orgId);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -107,7 +107,7 @@ async function insertDeduped(orgId: number, rows: IngestRow[]) {
   const result = rows.length
     ? await prisma.review.createMany({ data: rows, skipDuplicates: true })
     : { count: 0 };
-  if (result.count > 0) await enqueueDelivery(orgId, 'reviews');
+  if (result.count > 0) await markContentChanged(orgId);
   await touchLastRefreshed(orgId);
   return { received: rows.length, inserted: result.count, skipped: rows.length - result.count };
 }

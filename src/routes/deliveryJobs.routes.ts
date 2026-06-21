@@ -9,4 +9,5 @@ export const deliveryJobsRoutes = Router();
 deliveryJobsRoutes.use(authJwt, tenantScope);
 
 deliveryJobsRoutes.get('/', requirePermission('delivery:read:own'), deliveryController.list);
+deliveryJobsRoutes.post('/publish', requirePermission('delivery:publish:own'), deliveryController.publish);
 deliveryJobsRoutes.post('/:id/retry', requirePermission('delivery:retry:own'), deliveryController.retry);

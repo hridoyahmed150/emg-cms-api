@@ -16,6 +16,7 @@ import { organizationRoutes } from './routes/organization.routes';
 import { userRoutes } from './routes/user.routes';
 import { uploadRoutes } from './routes/upload.routes';
 import { deliveryJobsRoutes } from './routes/deliveryJobs.routes';
+import { metaRoutes } from './routes/meta.routes';
 import { startDeliveryWorker } from './delivery/worker';
 
 /** Build the Express app. Exported so tests can mount it without binding a port. */
@@ -42,6 +43,7 @@ export function createApp() {
   app.use('/api/v1/users', userRoutes);
   app.use('/api/v1/uploads', uploadRoutes);
   app.use('/api/v1/delivery-jobs', deliveryJobsRoutes);
+  app.use('/api/v1/meta', metaRoutes);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

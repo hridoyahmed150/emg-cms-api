@@ -16,17 +16,51 @@ export const ROLE_PERMISSIONS: Record<Role, string[]> = {
     'uploads:read',
     'uploads:write',
     'uploads:delete',
-    'users:read:own_org',
-    'users:write:own_org',
+    // User management is SUPER_ADMIN-only (no 'users:*' here) — enforced by requireSuperAdmin in user.routes.ts.
     'organization:read:own',
     'organization:write:own',
     'delivery:read:own',
     'delivery:retry:own',
+    'delivery:publish:own',
     'tokens:read:own',
     'tokens:write:own',
   ],
   // EDITOR: ['jobs:read','jobs:write','reviews:read','reviews:write'],  // future
 };
+
+/**
+ * Human-readable permission catalog for the dashboard's read-only permissions view.
+ * `key` matches the strings in ROLE_PERMISSIONS; SUPER_ADMIN holds the `*` wildcard
+ * (full access) and is rendered specially in the UI. Editing permissions per-user is
+ * intentionally out of scope for now (display-only).
+ */
+export interface PermissionInfo {
+  key: string;
+  label: string;
+  group: string;
+}
+
+export const PERMISSION_CATALOG: PermissionInfo[] = [
+  { key: 'jobs:read', label: 'View jobs', group: 'Jobs' },
+  { key: 'jobs:write', label: 'Create & edit jobs', group: 'Jobs' },
+  { key: 'jobs:delete', label: 'Delete jobs', group: 'Jobs' },
+  { key: 'reviews:read', label: 'View reviews', group: 'Reviews' },
+  { key: 'reviews:write', label: 'Create, edit & refresh reviews', group: 'Reviews' },
+  { key: 'reviews:delete', label: 'Delete reviews', group: 'Reviews' },
+  { key: 'uploads:read', label: 'View uploads', group: 'Uploads' },
+  { key: 'uploads:write', label: 'Upload files', group: 'Uploads' },
+  { key: 'uploads:delete', label: 'Delete uploads', group: 'Uploads' },
+  { key: 'users:read', label: 'View users', group: 'Users (super admin only)' },
+  { key: 'users:write', label: 'Create & edit users', group: 'Users (super admin only)' },
+  { key: 'users:delete', label: 'Delete users', group: 'Users (super admin only)' },
+  { key: 'organization:read:own', label: 'View organization', group: 'Organization' },
+  { key: 'organization:write:own', label: 'Edit organization', group: 'Organization' },
+  { key: 'delivery:read:own', label: 'View delivery jobs', group: 'Delivery' },
+  { key: 'delivery:retry:own', label: 'Retry delivery', group: 'Delivery' },
+  { key: 'delivery:publish:own', label: 'Publish to site', group: 'Delivery' },
+  { key: 'tokens:read:own', label: 'View API tokens', group: 'API tokens' },
+  { key: 'tokens:write:own', label: 'Manage API tokens', group: 'API tokens' },
+];
 
 export function hasPermission(role: Role, permission: string): boolean {
   const perms = ROLE_PERMISSIONS[role] ?? [];

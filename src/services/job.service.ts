@@ -1,7 +1,7 @@
 import { Prisma, prisma } from '../lib/prisma';
 import { NotFoundError } from '../errors/AppError';
 import { validateResourceMeta } from './meta.helper';
-import { enqueueDelivery } from './delivery.service';
+import { markContentChanged } from './delivery.service';
 import type { CreateJobInput, UpdateJobInput, ListJobsQuery } from '../schemas/job';
 
 export async function listJobs(query: ListJobsQuery) {
@@ -42,7 +42,7 @@ export async function createJob(orgId: number, input: CreateJobInput) {
       meta,
     },
   });
-  await enqueueDelivery(orgId, 'jobs');
+  await markContentChanged(orgId);
   return job;
 }
 
@@ -58,12 +58,12 @@ export async function updateJob(orgId: number, id: number, input: UpdateJobInput
 
   const res = await prisma.job.updateMany({ where: { id }, data });
   if (res.count === 0) throw new NotFoundError('Job not found');
-  await enqueueDelivery(orgId, 'jobs');
+  await markContentChanged(orgId);
   return getJob(id);
 }
 
 export async function deleteJob(orgId: number, id: number) {
   const res = await prisma.job.deleteMany({ where: { id } });
   if (res.count === 0) throw new NotFoundError('Job not found');
-  await enqueueDelivery(orgId, 'jobs');
+  await markContentChanged(orgId);
 }

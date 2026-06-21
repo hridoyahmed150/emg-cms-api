@@ -34,11 +34,22 @@ export async function refresh(req: Request, res: Response): Promise<void> {
   } catch {
     throw new UnauthorizedError('Invalid or expired refresh token');
   }
-  const { accessToken, user } = await authService.refresh(payload.userId);
+  const { accessToken, user } = await authService.refresh(payload.userId, payload.tokenVersion);
   res.json({ accessToken, user });
 }
 
 export async function logout(_req: Request, res: Response): Promise<void> {
+  res.clearCookie(REFRESH_COOKIE, { path: '/api/v1/auth' });
+  res.json({ ok: true });
+}
+
+/**
+ * Log out of ALL sessions/devices: invalidate every refresh token for the current user.
+ * (Already-issued access tokens still work until they expire — see authService.bumpTokenVersion.)
+ */
+export async function logoutAll(req: Request, res: Response): Promise<void> {
+  if (!req.auth?.userId) throw new UnauthorizedError();
+  await authService.bumpTokenVersion(req.auth.userId);
   res.clearCookie(REFRESH_COOKIE, { path: '/api/v1/auth' });
   res.json({ ok: true });
 }

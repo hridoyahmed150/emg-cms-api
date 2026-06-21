@@ -66,6 +66,8 @@ model User {
   organizationId Int? // null for SUPER_ADMIN
   organization   Organization? @relation(fields: [organizationId], references: [id])
   apiTokens      ApiToken[]
+  tokenVersion   Int           @default(0) // bumped on password change -> invalidates old refresh tokens
+  lastLoginAt    DateTime? // set on each successful login
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 

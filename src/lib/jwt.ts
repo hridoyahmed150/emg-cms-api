@@ -10,6 +10,8 @@ export interface AccessTokenPayload {
 
 export interface RefreshTokenPayload {
   userId: number;
+  /** Must match User.tokenVersion at refresh time; bumped on password change / logout-all. */
+  tokenVersion: number;
 }
 
 const accessOpts: SignOptions = {

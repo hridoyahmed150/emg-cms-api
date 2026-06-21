@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { authJwt } from '../middleware/auth';
 import { tenantScope } from '../middleware/tenant';
-import { requirePermission } from '../middleware/permission';
+import { requirePermission, requireFeature } from '../middleware/permission';
 import { validate } from '../middleware/validate';
 import {
   CreateReviewSchema,
@@ -13,7 +13,7 @@ import * as reviewController from '../controllers/review.controller';
 
 export const reviewRoutes = Router();
 
-reviewRoutes.use(authJwt, tenantScope);
+reviewRoutes.use(authJwt, tenantScope, requireFeature('reviews'));
 
 reviewRoutes.get('/', requirePermission('reviews:read'), validate(ListReviewsQuerySchema, 'query'), reviewController.list);
 reviewRoutes.post('/', requirePermission('reviews:write'), validate(CreateReviewSchema, 'body'), reviewController.create);
