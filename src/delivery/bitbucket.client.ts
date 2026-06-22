@@ -5,8 +5,9 @@ import { env } from '../config/env';
  *
  * Used to publish an org's data file (e.g. src/data/reviews.json) to its CloudCannon
  * repo — the commit is what triggers a CloudCannon rebuild (CloudCannon has no
- * tokenless build webhook). One workspace-level app password covers every repo in
- * the workspace, so credentials are global CMS env, not per-org.
+ * tokenless build webhook). Auth = an API token with scopes (write:repository) via
+ * Basic auth (email:token) — app passwords are being removed. One workspace-scoped
+ * token covers every repo, so credentials are global CMS env, not per-org.
  *
  * POST /2.0/repositories/{workspace}/{repo}/src
  *   form-encoded: {repoPath}=<content>, message=<msg>, branch=<branch>
@@ -19,9 +20,9 @@ export async function commitFile(opts: {
   message: string;
 }): Promise<string> {
   const { repo, branch, path, content, message } = opts;
-  const { BITBUCKET_WORKSPACE: workspace, BITBUCKET_USERNAME: user, BITBUCKET_APP_PASSWORD: pass } = env;
-  if (!workspace || !user || !pass) {
-    throw new Error('Bitbucket not configured (BITBUCKET_WORKSPACE/USERNAME/APP_PASSWORD)');
+  const { BITBUCKET_WORKSPACE: workspace, BITBUCKET_EMAIL: email, BITBUCKET_API_TOKEN: apiToken } = env;
+  if (!workspace || !email || !apiToken) {
+    throw new Error('Bitbucket not configured (BITBUCKET_WORKSPACE/EMAIL/API_TOKEN)');
   }
 
   const url = `${env.BITBUCKET_API_BASE}/repositories/${encodeURIComponent(workspace)}/${encodeURIComponent(repo)}/src`;
@@ -30,7 +31,7 @@ export async function commitFile(opts: {
   body.set('message', message);
   body.set('branch', branch);
 
-  const auth = Buffer.from(`${user}:${pass}`).toString('base64');
+  const auth = Buffer.from(`${email}:${apiToken}`).toString('base64'); // Basic auth: Atlassian email + API token
   const res = await fetch(url, {
     method: 'POST',
     headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/x-www-form-urlencoded' },

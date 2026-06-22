@@ -42,10 +42,11 @@ const EnvSchema = z.object({
   GOOGLE_OAUTH_CLIENT_SECRET: z.string().optional(),
 
   // Bitbucket (git-commit delivery for CloudCannon Astro sites — commit data files on Publish).
-  // All EMG clients live in one workspace, so one app password (repository:write) covers every repo.
+  // Auth = API token with scopes (write:repository) via Basic auth (email:token); app passwords
+  // are being removed. One workspace-scoped token covers every repo in the workspace.
   BITBUCKET_WORKSPACE: z.string().optional(),
-  BITBUCKET_USERNAME: z.string().optional(),
-  BITBUCKET_APP_PASSWORD: z.string().optional(),
+  BITBUCKET_EMAIL: z.string().optional(),
+  BITBUCKET_API_TOKEN: z.string().optional(),
   BITBUCKET_API_BASE: z.string().default('https://api.bitbucket.org/2.0'),
 
   SENTRY_DSN: z.string().optional(),
