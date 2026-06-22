@@ -43,3 +43,9 @@ export async function remove(req: Request, res: Response): Promise<void> {
   await jobService.deleteJob(orgId, parseId(req));
   res.status(204).send();
 }
+
+/** Reverse-import the org's existing jobs.json from its Bitbucket repo (onboarding seed). */
+export async function importFromRepo(req: Request, res: Response): Promise<void> {
+  const orgId = requireTenant(req);
+  res.json(await jobService.importJobsFromRepo(orgId));
+}
