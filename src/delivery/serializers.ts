@@ -40,12 +40,12 @@ export function serializeReview(review: Review) {
   return {
     ...metaObject(review.meta),
     name: review.name,
-    avatar: review.avatar,
+    avatar: review.avatar ?? undefined, // omit (not null) → matches reviews.json + Astro's string|undefined
     rating: review.rating,
     text: review.text,
     time: toUnixSeconds(review.time),
     featured: review.featured,
     verified: review.verified,
-    reviewUrl: review.reviewUrl,
+    reviewUrl: review.reviewUrl ?? undefined,
   };
 }

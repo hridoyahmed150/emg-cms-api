@@ -2,10 +2,11 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import request from 'supertest';
 import type { Role } from '@prisma/client';
 import { createApp } from '../src/server';
-import { prisma } from '../src/lib/prisma';
+import { prisma, withTenant } from '../src/lib/prisma';
 import { hashPassword } from '../src/lib/password';
 import { signAccessToken } from '../src/lib/jwt';
 import { generateConsumerToken } from '../src/lib/apiToken';
+import { buildReviewsData } from '../src/services/public.service';
 
 const app = createApp();
 
@@ -110,5 +111,18 @@ describe('Reviews ingestion — public feed (5★, latest first)', () => {
     expect(res.status).toBe(200);
     expect(res.body).toHaveLength(1);
     expect(res.body[0].name).toBe('Bob');
+  });
+});
+
+describe('Reviews ingestion — committed payload (buildReviewsData)', () => {
+  it('aggregateRating reflects the FULL corpus, not the 5★ display subset', async () => {
+    const { org, token } = await makeOrg();
+    await importReviews(token, sample); // 2×5★ + 1×4★
+
+    const data = await withTenant({ tenantId: org.id, isSuper: false }, () => buildReviewsData(org.id));
+
+    expect(data.reviews).toHaveLength(2); // display = 5★ only (Bob, Alice)
+    expect(data.totalReviewCount).toBe(3); // aggregate counts all 3
+    expect(data.averageRating).toBe(4.7); // (5+5+4)/3 = 4.666… → 4.7, NOT a forced 5.0
   });
 });

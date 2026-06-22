@@ -4,6 +4,8 @@ import { prisma, withTenant } from '../lib/prisma';
 import { logger } from '../lib/logger';
 import { triggerAstroBuild } from './cloudcannon.client';
 import { triggerWordpressCacheBust } from './wordpress.client';
+import { commitFile } from './bitbucket.client';
+import { buildReviewsData } from '../services/public.service';
 
 const MAX_ATTEMPTS = 3;
 const BACKOFF_MS = [60_000, 300_000, 1_800_000]; // 1m, 5m, 30m
@@ -14,12 +16,26 @@ const SUPER = { tenantId: null, isSuper: true } as const;
 async function dispatch(org: Organization): Promise<string> {
   const config = (org.config ?? {}) as Record<string, unknown>;
   if (org.deliveryTarget === 'ASTRO_PULL') {
+    // Primary path (CloudCannon): commit the reviews snapshot to the org's repo — the
+    // commit is what triggers the CloudCannon build. Builds read this committed file
+    // only, so non-publish builds never pull live data. Build in the org's tenant
+    // context (the worker runs as SUPER, which would otherwise pull every org's data).
+    const git = config.git as { repo?: string; branch?: string; path?: string } | undefined;
+    if (git?.repo && git?.path) {
+      const data = await withTenant({ tenantId: org.id, isSuper: false }, () => buildReviewsData(org.id));
+      const content = JSON.stringify(data, null, 2) + '\n';
+      return commitFile({
+        repo: git.repo,
+        branch: git.branch || 'main',
+        path: git.path,
+        content,
+        message: `chore(reviews): publish ${data.totalReviewCount} reviews from EMG CMS`,
+      });
+    }
+    // Fallback: a real build-hook URL (non-CloudCannon hosts like Netlify/Vercel).
     const url = config.buildHookUrl;
-    // CloudCannon has no tokenless build webhook — those sites rebuild on git push,
-    // a scheduled build, or a manual Rebuild. With no hook, Publish is a clean no-op
-    // (mirrors the optional WordPress cache-bust below) rather than a failing job.
-    if (typeof url !== 'string' || !url) return 'no buildHookUrl (CloudCannon build via push/schedule/manual)';
-    return triggerAstroBuild(url);
+    if (typeof url === 'string' && url) return triggerAstroBuild(url);
+    return 'no git/buildHookUrl configured (set config.git to commit reviews.json to the repo)';
   }
   // WORDPRESS_PULL — cache-bust is optional (plugin TTL keeps things fresh otherwise).
   const url = config.cacheBustUrl;

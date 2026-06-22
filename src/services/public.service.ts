@@ -44,3 +44,33 @@ export async function publicReviews(
   });
   return reviews.map(serializeReview);
 }
+
+/**
+ * The full reviews.json payload (ReviewsData shape) that gets committed to an org's
+ * Astro repo on Publish. MUST run in the org's tenant context (the delivery worker
+ * runs as SUPER, which would otherwise pull every org's reviews). `time` is unix
+ * seconds (serializeReview), matching the committed reviews.json and Astro component.
+ */
+export async function buildReviewsData(orgId: number | null) {
+  const reviews = await publicReviews(orgId); // filtered + capped DISPLAY set (e.g. 5★, latest 20)
+
+  // aggregateRating must reflect the FULL corpus, not the display subset — otherwise the 5★
+  // display filter forces averageRating to 5.0 and caps reviewCount at the display limit, which
+  // ships misleading JSON-LD. Compute over every review the CMS holds for this org (findMany is
+  // tenant-scoped). For a true Google total beyond what the CMS holds, import the full set.
+  const all = await prisma.review.findMany({ select: { rating: true } });
+  const totalReviewCount = all.length;
+  const averageRating = all.length
+    ? Math.round((all.reduce((sum, r) => sum + r.rating, 0) / all.length) * 10) / 10
+    : 0;
+
+  const cfg = (await reviewsConfig(orgId)) as Record<string, unknown>;
+  const businessReviewUrl = typeof cfg.googleMapsUrl === 'string' ? cfg.googleMapsUrl : undefined;
+  return {
+    source: 'Google',
+    ...(businessReviewUrl ? { businessReviewUrl } : {}),
+    averageRating,
+    totalReviewCount,
+    reviews,
+  };
+}
