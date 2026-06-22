@@ -61,3 +61,9 @@ export async function refresh(req: Request, res: Response): Promise<void> {
   const orgId = requireTenant(req);
   res.json(await reviewService.refreshReviews(orgId));
 }
+
+/** Reverse-import the org's existing reviews.json from its Bitbucket repo (onboarding seed). */
+export async function importFromRepo(req: Request, res: Response): Promise<void> {
+  const orgId = requireTenant(req);
+  res.json(await reviewService.importReviewsFromRepo(orgId));
+}

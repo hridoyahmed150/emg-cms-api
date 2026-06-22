@@ -104,7 +104,7 @@ model Review {
   avatar         String? // R2 public URL
   rating         Int
   text           String
-  time           BigInt // unix timestamp (ms)
+  time           BigInt // mixed units: unix seconds (raw numeric imports) or ms (Date.parse / Date.now); disambiguated on output at ~1e11 (serializers.ts toUnixSeconds)
   featured       Boolean      @default(false)
   verified       Boolean      @default(true)
   reviewUrl      String?

@@ -19,6 +19,9 @@ reviewRoutes.get('/', requirePermission('reviews:read'), validate(ListReviewsQue
 reviewRoutes.post('/', requirePermission('reviews:write'), validate(CreateReviewSchema, 'body'), reviewController.create);
 // Ingestion (static paths — declared before '/:id' params; no POST param route exists anyway).
 reviewRoutes.post('/import', requirePermission('reviews:write'), validate(ImportReviewsSchema, 'body'), reviewController.importBulk);
+// No body schema: the file path comes from the org's config.git (not the request body),
+// like /refresh. The repo JSON is defensively parsed in parseReviewsFile.
+reviewRoutes.post('/import-from-repo', requirePermission('reviews:write'), reviewController.importFromRepo);
 reviewRoutes.post('/refresh', requirePermission('reviews:write'), reviewController.refresh);
 reviewRoutes.get('/:id', requirePermission('reviews:read'), reviewController.get);
 reviewRoutes.patch('/:id', requirePermission('reviews:write'), validate(UpdateReviewSchema, 'body'), reviewController.update);

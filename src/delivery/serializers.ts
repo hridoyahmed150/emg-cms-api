@@ -33,6 +33,8 @@ export function serializeJob(job: Job) {
  */
 function toUnixSeconds(time: bigint): number {
   const n = Number(time);
+  // Threshold: realistic unix SECONDS stay below 1e11 (1e11s ≈ year 5138), while
+  // unix MILLISECONDS exceed it (≥ ~9.46e10 since 1973) — so no collision for real dates.
   return n > 1e11 ? Math.floor(n / 1000) : n;
 }
 

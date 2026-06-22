@@ -1,9 +1,10 @@
 import crypto from 'node:crypto';
 import type { Review } from '@prisma/client';
 import { Prisma, prisma } from '../lib/prisma';
-import { NotFoundError } from '../errors/AppError';
+import { NotFoundError, BadRequestError } from '../errors/AppError';
 import { validateResourceMeta } from './meta.helper';
 import { markContentChanged } from './delivery.service';
+import { readFile } from '../delivery/bitbucket.client';
 import { createReviewSource, type ReviewsConfig } from './reviewSource';
 import type {
   CreateReviewInput,
@@ -149,6 +150,123 @@ export async function refreshReviews(orgId: number) {
       externalId: r.externalId,
     }));
   return insertDeduped(orgId, rows);
+}
+
+/** Hard cap on a single reverse-import. The HTTP /import route caps at 200 via its Zod
+ * schema; this path bypasses that schema, so guard against a huge/accidental repo file. */
+const MAX_REPO_IMPORT = 500;
+
+/** Mixed-unit (seconds or ms) → unix seconds, matching serializeReview's toUnixSeconds. */
+const toSeconds = (n: number): number => (n > 1e11 ? Math.floor(n / 1000) : n);
+
+/**
+ * Reverse-import: pull the org's EXISTING reviews.json from its Bitbucket repo INTO the
+ * CMS (deduped). Run during onboarding, BEFORE the first Publish — the CMS overwrites
+ * reviews.json on Publish, so pre-existing repo reviews not yet in the CMS would be
+ * clobbered. Idempotent AND cross-source safe: an incoming item is dropped if an
+ * equivalent review (same name+text+second-precision time) already exists in the CMS,
+ * regardless of how that row was keyed. So importing a repo whose reviews already came
+ * from Google won't double the corpus (which would inflate the JSON-LD aggregateRating),
+ * and re-running with a different time format (seconds↔ms↔date-string) is still a no-op.
+ * Returns the insert summary, or a `note` when there's no file / nothing new.
+ */
+export async function importReviewsFromRepo(
+  orgId: number,
+): Promise<{ received: number; inserted: number; skipped: number; note?: string }> {
+  const git = await getGitConfig(orgId);
+  if (!git?.repo || !git?.path) {
+    throw new BadRequestError(
+      'No Astro repo configured. Set the Bitbucket repo (config.git.repo/path) in org settings first.',
+    );
+  }
+  // Defense-in-depth: config.git.path is super-admin-set, but never let it traverse the repo.
+  if (git.path.includes('..') || git.path.startsWith('/')) {
+    throw new BadRequestError('Invalid git path (must be a repo-relative path without "..").');
+  }
+
+  const raw = await readFile({ repo: git.repo, branch: git.branch || 'main', path: git.path });
+  if (raw == null) {
+    await touchLastRefreshed(orgId);
+    return { received: 0, inserted: 0, skipped: 0, note: `No ${git.path} in ${git.repo} — nothing to import.` };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new BadRequestError(`${git.path} in the repo is not valid JSON.`);
+  }
+  const items = parseReviewsFile(parsed);
+  if (items.length === 0) {
+    await touchLastRefreshed(orgId);
+    return { received: 0, inserted: 0, skipped: 0, note: `No reviews found in ${git.path}.` };
+  }
+  if (items.length > MAX_REPO_IMPORT) {
+    throw new BadRequestError(
+      `${git.path} has ${items.length} reviews (max ${MAX_REPO_IMPORT} per import). Trim the file or import in batches.`,
+    );
+  }
+
+  // Cross-source + idempotency dedupe: skip items whose content already exists in the CMS
+  // (by name+text+second-precision time), independent of how the existing row was keyed.
+  // findMany is tenant-scoped to this org by the Prisma extension.
+  const existing = await prisma.review.findMany({ select: { name: true, text: true, time: true } });
+  const present = new Set(existing.map((r) => contentHash(r.name, toSeconds(Number(r.time)), r.text)));
+  const fresh = items.filter((it) => !present.has(contentHash(it.name, toSeconds(normalizeTime(it.time)), it.text)));
+
+  if (fresh.length === 0) {
+    await touchLastRefreshed(orgId);
+    return { received: items.length, inserted: 0, skipped: items.length, note: 'All reviews already in the CMS.' };
+  }
+  const res = await importReviews(orgId, fresh);
+  // Report against the whole file (importReviews only saw the fresh subset).
+  return { received: items.length, inserted: res.inserted, skipped: items.length - res.inserted };
+}
+
+const asString = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
+
+/**
+ * Defensive parser for a repo's reviews.json → import items. Accepts either a bare array
+ * or a `{ reviews: [...] }` wrapper (the ReviewsData shape the CMS commits), and tolerates
+ * alternate field names from hand-edited files (author/comment/date/url, etc.). Entries
+ * missing name/text or a valid 1–5 rating are dropped. `time` passes through unchanged
+ * (number or string) — importReviews + serializeReview normalize the units on round-trip.
+ * Exported for unit testing.
+ */
+export function parseReviewsFile(parsed: unknown): ImportReviewItem[] {
+  const arr: unknown[] = Array.isArray(parsed)
+    ? parsed
+    : parsed && typeof parsed === 'object' && Array.isArray((parsed as Record<string, unknown>).reviews)
+      ? ((parsed as Record<string, unknown>).reviews as unknown[])
+      : [];
+
+  const items: ImportReviewItem[] = [];
+  for (const entry of arr) {
+    if (!entry || typeof entry !== 'object') continue;
+    const r = entry as Record<string, unknown>;
+    const name = asString(r.name ?? r.author ?? r.authorName ?? r.reviewer);
+    const text = asString(r.text ?? r.comment ?? r.content ?? r.review ?? r.body);
+    const rating = Math.trunc(Number(r.rating ?? r.stars ?? r.score));
+    if (!name || !text || !Number.isFinite(rating) || rating < 1 || rating > 5) continue;
+
+    const item: ImportReviewItem = { name, text, rating };
+    const time = r.time ?? r.date ?? r.createdAt ?? r.datePublished;
+    if (typeof time === 'number' || typeof time === 'string') item.time = time;
+    const avatar = asString(r.avatar ?? r.profilePhoto ?? r.avatarUrl ?? r.photo);
+    if (avatar) item.avatar = avatar;
+    const reviewUrl = asString(r.reviewUrl ?? r.url ?? r.link);
+    if (reviewUrl) item.reviewUrl = reviewUrl;
+    const externalId = asString(r.externalId); // only an explicit, stable id — never a local index
+    if (externalId) item.externalId = externalId;
+    items.push(item);
+  }
+  return items;
+}
+
+/** Read `Organization.config.git` (Organization is NOT tenant-scoped). */
+async function getGitConfig(orgId: number): Promise<{ repo?: string; branch?: string; path?: string } | null> {
+  const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { config: true } });
+  const git = org?.config && typeof org.config === 'object' ? (org.config as Record<string, unknown>).git : undefined;
+  return git && typeof git === 'object' ? (git as { repo?: string; branch?: string; path?: string }) : null;
 }
 
 function normalizeTime(t?: string | number): number {
