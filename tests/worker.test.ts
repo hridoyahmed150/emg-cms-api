@@ -104,6 +104,60 @@ describe('Delivery worker', () => {
     }
   });
 
+  it('commits jobs.json (non-draft only) to the repo for a git-configured ASTRO_PULL org', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 201,
+      headers: { get: () => 'https://bitbucket.org/everydaymediagroup/eistx/commits/abc' },
+      text: async () => '',
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      const org = await makeOrg('astro-jobs', {
+        git: { repo: 'eistx', branch: 'main', jobsPath: 'src/data/jobs.json' },
+      });
+      await withTenant({ tenantId: org.id, isSuper: false }, () =>
+        prisma.job.createMany({
+          data: [
+            {
+              organizationId: org.id,
+              slug: 'irrigation-tech',
+              title: 'Irrigation Technician',
+              type: 'full-time',
+              location: 'Plano, TX',
+              posted: new Date('2025-07-03'),
+              status: 'active',
+            },
+            {
+              organizationId: org.id,
+              slug: 'hidden-draft',
+              title: 'Hidden Draft Role',
+              type: 'full-time',
+              location: 'Plano, TX',
+              posted: new Date('2025-07-04'),
+              status: 'draft',
+            },
+          ],
+        }),
+      );
+      const job = await enqueue(org.id, new Date(Date.now() - 1000));
+      await processDueJobs();
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [url, opts] = fetchMock.mock.calls[0] as [string, { body: string }];
+      expect(url).toContain('/repositories/everydaymediagroup/eistx/src');
+      // URLSearchParams encodes spaces as '+'; decode then restore spaces to assert on content.
+      const body = decodeURIComponent(String(opts.body)).replace(/\+/g, ' ');
+      expect(body).toContain('src/data/jobs.json');
+      expect(body).toContain('Irrigation Technician');
+      expect(body).not.toContain('Hidden Draft Role'); // draft excluded from the published jobs.json
+      const updated = await getJob(job.id);
+      expect(updated?.status).toBe('success');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('WORDPRESS_PULL with no cacheBustUrl succeeds without an HTTP call', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);

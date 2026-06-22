@@ -6,6 +6,7 @@ import type { Role } from '@prisma/client';
 vi.mock('../src/delivery/bitbucket.client', () => ({
   readFile: vi.fn(),
   commitFile: vi.fn(),
+  commitFiles: vi.fn(),
 }));
 
 import { createApp } from '../src/server';

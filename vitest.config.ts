@@ -10,6 +10,10 @@ export default defineConfig({
       LOG_LEVEL: 'silent',
       R2_BUCKET: 'test-bucket',
       R2_PUBLIC_BASE: 'https://cdn.test',
+      // Dummy Bitbucket creds so the commit-on-publish path runs (fetch is stubbed in tests).
+      BITBUCKET_WORKSPACE: 'everydaymediagroup',
+      BITBUCKET_EMAIL: 'ci@test',
+      BITBUCKET_API_TOKEN: 'test-token',
     },
     fileParallelism: false, // test files share one DB
     hookTimeout: 30000,

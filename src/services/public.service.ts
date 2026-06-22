@@ -11,6 +11,22 @@ export async function publicJobs() {
   return jobs.map(serializeJob);
 }
 
+/**
+ * The full jobs.json payload committed to an org's Astro repo on Publish — a BARE ARRAY
+ * (matches the hand-edited jobs.json shape; unlike reviews this has no wrapper object).
+ * Includes active AND expired jobs (the listing page badges expired ones); only `draft`
+ * is withheld. MUST run in the org's tenant context (the delivery worker runs as SUPER);
+ * findMany is tenant-scoped by the Prisma extension. `_orgId` is accepted for symmetry
+ * with buildReviewsData — the tenant scope, not the arg, filters the rows.
+ */
+export async function buildJobsData(_orgId: number | null) {
+  const jobs = await prisma.job.findMany({
+    where: { status: { not: 'draft' } },
+    orderBy: { posted: 'desc' },
+  });
+  return jobs.map(serializeJob);
+}
+
 /** Read `Organization.config.reviews` (Organization is NOT tenant-scoped). */
 async function reviewsConfig(orgId: number | null): Promise<ReviewsConfig> {
   if (orgId == null) return {};

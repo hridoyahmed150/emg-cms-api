@@ -1,33 +1,34 @@
 import { env } from '../config/env';
 
 /**
- * Commit a single file to a Bitbucket repo via the REST API (one commit per call).
+ * Commit one or more files to a Bitbucket repo via the REST API as a SINGLE commit.
  *
- * Used to publish an org's data file (e.g. src/data/reviews.json) to its CloudCannon
- * repo — the commit is what triggers a CloudCannon rebuild (CloudCannon has no
- * tokenless build webhook). Auth = an API token with scopes (write:repository) via
- * Basic auth (email:token) — app passwords are being removed. One workspace-scoped
- * token covers every repo, so credentials are global CMS env, not per-org.
+ * Used to publish an org's data files (e.g. src/data/reviews.json + src/data/jobs.json)
+ * to its CloudCannon repo — the commit is what triggers a CloudCannon rebuild (CloudCannon
+ * has no tokenless build webhook). Committing all files together = one commit = one build.
+ * Auth = an API token with scopes (write:repository) via Basic auth (email:token) — app
+ * passwords are being removed. One workspace-scoped token covers every repo, so credentials
+ * are global CMS env, not per-org.
  *
  * POST /2.0/repositories/{workspace}/{repo}/src
- *   form-encoded: {repoPath}=<content>, message=<msg>, branch=<branch>
+ *   form-encoded: {repoPath}=<content> (one field per file), message=<msg>, branch=<branch>
  */
-export async function commitFile(opts: {
+export async function commitFiles(opts: {
   repo: string;
   branch: string;
-  path: string;
-  content: string;
   message: string;
+  files: Array<{ path: string; content: string }>;
 }): Promise<string> {
-  const { repo, branch, path, content, message } = opts;
+  const { repo, branch, message, files } = opts;
   const { BITBUCKET_WORKSPACE: workspace, BITBUCKET_EMAIL: email, BITBUCKET_API_TOKEN: apiToken } = env;
   if (!workspace || !email || !apiToken) {
     throw new Error('Bitbucket not configured (BITBUCKET_WORKSPACE/EMAIL/API_TOKEN)');
   }
+  if (files.length === 0) throw new Error('commitFiles called with no files');
 
   const url = `${env.BITBUCKET_API_BASE}/repositories/${encodeURIComponent(workspace)}/${encodeURIComponent(repo)}/src`;
   const body = new URLSearchParams();
-  body.set(path, content); // field name = the file's repo path → creates/updates that file
+  for (const f of files) body.set(f.path, f.content); // field name = the file's repo path → creates/updates that file
   body.set('message', message);
   body.set('branch', branch);
 
@@ -43,7 +44,19 @@ export async function commitFile(opts: {
     throw new Error(`Bitbucket commit failed: HTTP ${res.status} ${detail.slice(0, 200)}`);
   }
   // 201 Created — the new commit URL is returned in the Location header.
-  return res.headers.get('location') ?? `committed ${path}@${branch}`;
+  return res.headers.get('location') ?? `committed ${files.map((f) => f.path).join(', ')}@${branch}`;
+}
+
+/** Commit a single file (thin wrapper over commitFiles). */
+export async function commitFile(opts: {
+  repo: string;
+  branch: string;
+  path: string;
+  content: string;
+  message: string;
+}): Promise<string> {
+  const { repo, branch, path, content, message } = opts;
+  return commitFiles({ repo, branch, message, files: [{ path, content }] });
 }
 
 /**
