@@ -23,6 +23,19 @@ export function serializeJob(job: Job) {
   };
 }
 
+/**
+ * The `Review.time` column holds mixed units: numeric-seconds imports (e.g. a
+ * hand-edited reviews.json) are stored as-is, while date-string imports, Google
+ * refreshes, and `Date.now()` defaults are milliseconds. The public feed contract
+ * is unix SECONDS (matches the hand-edited reviews.json and the Astro Reviews
+ * component, which does `time * 1000`), so normalize: anything past ~1e11 is
+ * milliseconds and gets divided down to seconds.
+ */
+function toUnixSeconds(time: bigint): number {
+  const n = Number(time);
+  return n > 1e11 ? Math.floor(n / 1000) : n;
+}
+
 export function serializeReview(review: Review) {
   return {
     ...metaObject(review.meta),
@@ -30,7 +43,7 @@ export function serializeReview(review: Review) {
     avatar: review.avatar,
     rating: review.rating,
     text: review.text,
-    time: Number(review.time),
+    time: toUnixSeconds(review.time),
     featured: review.featured,
     verified: review.verified,
     reviewUrl: review.reviewUrl,

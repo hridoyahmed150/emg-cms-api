@@ -94,6 +94,9 @@ describe('Reviews ingestion — public feed (5★, latest first)', () => {
     expect(res.status).toBe(200);
     expect(res.body.map((r: { name: string }) => r.name)).toEqual(['Bob', 'Alice']); // 4★ Carol excluded, newest first
     expect(res.body.every((r: { rating: number }) => r.rating === 5)).toBe(true);
+    // Public feed emits unix SECONDS (the Astro Reviews component does `time * 1000`),
+    // even though Bob was imported from a date string (stored as milliseconds).
+    expect(res.body[0].time).toBe(Math.floor(Date.parse('2026-06-12') / 1000));
   });
 
   it('honors ?limit override', async () => {

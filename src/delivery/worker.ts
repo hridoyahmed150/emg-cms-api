@@ -15,7 +15,10 @@ async function dispatch(org: Organization): Promise<string> {
   const config = (org.config ?? {}) as Record<string, unknown>;
   if (org.deliveryTarget === 'ASTRO_PULL') {
     const url = config.buildHookUrl;
-    if (typeof url !== 'string' || !url) throw new Error('No buildHookUrl configured');
+    // CloudCannon has no tokenless build webhook — those sites rebuild on git push,
+    // a scheduled build, or a manual Rebuild. With no hook, Publish is a clean no-op
+    // (mirrors the optional WordPress cache-bust below) rather than a failing job.
+    if (typeof url !== 'string' || !url) return 'no buildHookUrl (CloudCannon build via push/schedule/manual)';
     return triggerAstroBuild(url);
   }
   // WORDPRESS_PULL — cache-bust is optional (plugin TTL keeps things fresh otherwise).
