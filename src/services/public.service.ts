@@ -87,6 +87,9 @@ export async function buildReviewsData(orgId: number | null) {
     ...(businessReviewUrl ? { businessReviewUrl } : {}),
     averageRating,
     totalReviewCount,
+    // Stamped at publish time so the committed reviews.json carries a "last updated" marker
+    // automatically — no manual editing, and it can't be lost on the next Publish.
+    lastUpdated: new Date().toISOString(),
     reviews,
   };
 }
