@@ -1,6 +1,6 @@
 import type { User } from '@prisma/client';
 import { prisma } from '../lib/prisma';
-import { verifyPassword, DUMMY_PASSWORD_HASH } from '../lib/password';
+import { verifyPassword, hashPassword, DUMMY_PASSWORD_HASH } from '../lib/password';
 import { signAccessToken, signRefreshToken } from '../lib/jwt';
 import { UnauthorizedError } from '../errors/AppError';
 import { logger } from '../lib/logger';
@@ -15,6 +15,7 @@ function toPublicUser(u: User) {
     name: u.name,
     role: u.role,
     organizationId: u.organizationId,
+    mustChangePassword: u.mustChangePassword,
   };
 }
 export type PublicUser = ReturnType<typeof toPublicUser>;
@@ -88,6 +89,42 @@ export async function refresh(userId: number, tokenVersion: number) {
  */
 export async function bumpTokenVersion(userId: number): Promise<void> {
   await prisma.user.update({ where: { id: userId }, data: { tokenVersion: { increment: 1 } } });
+}
+
+/**
+ * Self-service password change. Verifies the current password, sets the new one, clears the
+ * must-change flag, and bumps tokenVersion (logs out OTHER sessions/devices). Re-issues fresh
+ * tokens for THIS session so the caller stays logged in (its old refresh token is now stale).
+ */
+export async function changePassword(userId: number, currentPassword: string, newPassword: string) {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw new UnauthorizedError();
+
+  const ok = await verifyPassword(currentPassword, user.passwordHash);
+  if (!ok) {
+    await recordAudit({
+      organizationId: user.organizationId,
+      userId,
+      action: 'auth.change_password.failed',
+      payload: { reason: 'bad_current_password' },
+    });
+    throw new UnauthorizedError('Current password is incorrect');
+  }
+
+  const passwordHash = await hashPassword(newPassword);
+  const updated = await prisma.user.update({
+    where: { id: userId },
+    data: { passwordHash, mustChangePassword: false, tokenVersion: { increment: 1 } },
+  });
+  await recordAudit({ organizationId: user.organizationId, userId, action: 'auth.change_password' });
+
+  const accessToken = signAccessToken({
+    userId: updated.id,
+    role: updated.role,
+    organizationId: updated.organizationId,
+  });
+  const refreshToken = signRefreshToken({ userId: updated.id, tokenVersion: updated.tokenVersion });
+  return { accessToken, refreshToken, user: toPublicUser(updated) };
 }
 
 export async function getMe(userId: number) {

@@ -4,7 +4,7 @@ import * as authService from '../services/auth.service';
 import { verifyRefreshToken } from '../lib/jwt';
 import { UnauthorizedError } from '../errors/AppError';
 import { env } from '../config/env';
-import type { LoginInput } from '../schemas/auth';
+import type { LoginInput, ChangePasswordInput } from '../schemas/auth';
 
 const REFRESH_COOKIE = 'emg_refresh';
 
@@ -52,6 +52,22 @@ export async function logoutAll(req: Request, res: Response): Promise<void> {
   await authService.bumpTokenVersion(req.auth.userId);
   res.clearCookie(REFRESH_COOKIE, { path: '/api/v1/auth' });
   res.json({ ok: true });
+}
+
+/**
+ * Self-service password change. Re-issues a fresh refresh cookie for THIS session (the old one
+ * is invalidated by the tokenVersion bump) so the user stays logged in after changing.
+ */
+export async function changePassword(req: Request, res: Response): Promise<void> {
+  if (!req.auth?.userId) throw new UnauthorizedError();
+  const input = validated<ChangePasswordInput>(req, 'body');
+  const { accessToken, refreshToken, user } = await authService.changePassword(
+    req.auth.userId,
+    input.currentPassword,
+    input.newPassword,
+  );
+  res.cookie(REFRESH_COOKIE, refreshToken, refreshCookieOpts);
+  res.json({ accessToken, user });
 }
 
 export async function me(req: Request, res: Response): Promise<void> {

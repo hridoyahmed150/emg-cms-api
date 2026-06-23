@@ -76,7 +76,9 @@ export async function createUser(
   const tempPassword = input.password ?? generateTempPassword();
   const passwordHash = await hashPassword(tempPassword);
   const user = await prisma.user.create({
-    data: { email: input.email, name: input.name, role, organizationId, passwordHash },
+    // A generated temp password must be changed by the user on first login; an explicit
+    // admin-chosen password is taken as final.
+    data: { email: input.email, name: input.name, role, organizationId, passwordHash, mustChangePassword: !input.password },
   });
 
   await recordAudit({
@@ -137,6 +139,8 @@ export async function updateUser(
     data.passwordHash = await hashPassword(input.password);
     // Changing the password invalidates all existing refresh tokens for this user.
     data.tokenVersion = { increment: 1 };
+    // Admin-reset password → the user must set their own on next login.
+    data.mustChangePassword = true;
     changed.push('password');
   }
 

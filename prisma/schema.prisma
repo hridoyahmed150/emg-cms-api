@@ -67,6 +67,7 @@ model User {
   organization   Organization? @relation(fields: [organizationId], references: [id])
   apiTokens      ApiToken[]
   tokenVersion   Int           @default(0) // bumped on password change -> invalidates old refresh tokens
+  mustChangePassword Boolean   @default(false) // true for temp/admin-set passwords -> forces a self-service change on next login
   lastLoginAt    DateTime? // set on each successful login
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt

@@ -158,6 +158,58 @@ describe('Delivery worker', () => {
     }
   });
 
+  it('publishing one org commits ONLY its own data — no cross-tenant leak', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 201,
+      headers: { get: () => 'https://bitbucket.org/everydaymediagroup/repo-a/commits/abc' },
+      text: async () => '',
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      const orgA = await makeOrg('org-a', {
+        git: { repo: 'repo-a', branch: 'main', path: 'src/data/reviews.json', jobsPath: 'src/data/jobs.json' },
+      });
+      const orgB = await makeOrg('org-b', {
+        git: { repo: 'repo-b', branch: 'main', path: 'src/data/reviews.json', jobsPath: 'src/data/jobs.json' },
+      });
+
+      // Org A content
+      await withTenant({ tenantId: orgA.id, isSuper: false }, async () => {
+        await prisma.job.create({
+          data: { organizationId: orgA.id, slug: 'a-job', title: 'Alpha Job', type: 'full-time', location: 'A City', posted: new Date('2026-01-01'), status: 'active' },
+        });
+        await prisma.review.create({
+          data: { organizationId: orgA.id, name: 'Alpha Reviewer', rating: 5, text: 'A review', time: BigInt(1780000000) },
+        });
+      });
+      // Org B content — must NEVER appear in org A's commit
+      await withTenant({ tenantId: orgB.id, isSuper: false }, async () => {
+        await prisma.job.create({
+          data: { organizationId: orgB.id, slug: 'b-job', title: 'Beta Job', type: 'full-time', location: 'B City', posted: new Date('2026-01-01'), status: 'active' },
+        });
+        await prisma.review.create({
+          data: { organizationId: orgB.id, name: 'Beta Reviewer', rating: 5, text: 'B review', time: BigInt(1780000000) },
+        });
+      });
+
+      const job = await enqueue(orgA.id, new Date(Date.now() - 1000)); // publish ONLY org A
+      await processDueJobs();
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [url, opts] = fetchMock.mock.calls[0] as [string, { body: string }];
+      expect(url).toContain('/repositories/everydaymediagroup/repo-a/src'); // A's repo only
+      const body = decodeURIComponent(String(opts.body)).replace(/\+/g, ' ');
+      expect(body).toContain('Alpha Job');
+      expect(body).toContain('Alpha Reviewer');
+      expect(body).not.toContain('Beta Job'); // org B data must NOT leak in
+      expect(body).not.toContain('Beta Reviewer');
+      expect(await getJob(job.id).then((j) => j?.status)).toBe('success');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('WORDPRESS_PULL with no cacheBustUrl succeeds without an HTTP call', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);

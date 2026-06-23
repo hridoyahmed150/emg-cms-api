@@ -4,7 +4,7 @@ import type { Role } from '@prisma/client';
 import { createApp } from '../src/server';
 import { prisma, withTenant } from '../src/lib/prisma';
 import { hashPassword } from '../src/lib/password';
-import { signAccessToken } from '../src/lib/jwt';
+import { signAccessToken, signRefreshToken } from '../src/lib/jwt';
 
 const app = createApp();
 const STRONG_PW = 'StrongPass123!';
@@ -203,5 +203,82 @@ describe('Permissions catalog endpoint', () => {
     expect(res.body.roles.SUPER_ADMIN).toContain('*');
     expect(res.body.catalog.some((c: { key: string }) => c.key === 'users:read')).toBe(true);
     expect(res.body.roles.ADMIN.some((p: string) => p.startsWith('users:'))).toBe(false);
+  });
+});
+
+describe('Self-service password change (POST /auth/change-password)', () => {
+  async function makeUser() {
+    const org = await prisma.organization.create({
+      data: { slug: 'cp', name: 'cp', deliveryTarget: 'ASTRO_PULL', config: {}, features: {}, customFields: {} },
+    });
+    const user = await prisma.user.create({
+      data: {
+        email: 'cp@test.com',
+        name: 'CP',
+        role: 'ADMIN' as Role,
+        passwordHash: await hashPassword(STRONG_PW),
+        organizationId: org.id,
+        mustChangePassword: true,
+      },
+    });
+    const access = signAccessToken({ userId: user.id, role: 'ADMIN' as Role, organizationId: org.id });
+    return { user, access };
+  }
+
+  it('changes password, clears mustChangePassword, rotates the session, invalidates old refresh token', async () => {
+    const { user, access } = await makeUser();
+    const oldRefresh = signRefreshToken({ userId: user.id, tokenVersion: 0 });
+
+    const res = await request(app)
+      .post('/api/v1/auth/change-password')
+      .set('Authorization', `Bearer ${access}`)
+      .send({ currentPassword: STRONG_PW, newPassword: 'NewStrongPass456!' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.user.mustChangePassword).toBe(false);
+    expect(res.body.accessToken).toBeTruthy();
+    expect(String(res.headers['set-cookie'] ?? '')).toContain('emg_refresh'); // fresh cookie for this session
+
+    // Old refresh token (tokenVersion 0) is now stale → 401.
+    const refreshOld = await request(app)
+      .post('/api/v1/auth/refresh')
+      .set('Cookie', `emg_refresh=${oldRefresh}`);
+    expect(refreshOld.status).toBe(401);
+
+    // New password logs in; old password no longer works.
+    expect(
+      (await request(app).post('/api/v1/auth/login').send({ email: 'cp@test.com', password: 'NewStrongPass456!' })).status,
+    ).toBe(200);
+    expect(
+      (await request(app).post('/api/v1/auth/login').send({ email: 'cp@test.com', password: STRONG_PW })).status,
+    ).toBe(401);
+  });
+
+  it('rejects a wrong current password (401), leaving the password unchanged', async () => {
+    const { access } = await makeUser();
+    const res = await request(app)
+      .post('/api/v1/auth/change-password')
+      .set('Authorization', `Bearer ${access}`)
+      .send({ currentPassword: 'WrongPass999!', newPassword: 'NewStrongPass456!' });
+    expect(res.status).toBe(401);
+    expect(
+      (await request(app).post('/api/v1/auth/login').send({ email: 'cp@test.com', password: STRONG_PW })).status,
+    ).toBe(200);
+  });
+
+  it('rejects a weak new password (422)', async () => {
+    const { access } = await makeUser();
+    const res = await request(app)
+      .post('/api/v1/auth/change-password')
+      .set('Authorization', `Bearer ${access}`)
+      .send({ currentPassword: STRONG_PW, newPassword: 'short' });
+    expect(res.status).toBe(422);
+  });
+
+  it('requires authentication (401 without a token)', async () => {
+    const res = await request(app)
+      .post('/api/v1/auth/change-password')
+      .send({ currentPassword: STRONG_PW, newPassword: 'NewStrongPass456!' });
+    expect(res.status).toBe(401);
   });
 });
