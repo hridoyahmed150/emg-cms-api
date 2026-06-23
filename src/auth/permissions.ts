@@ -22,8 +22,8 @@ export const ROLE_PERMISSIONS: Record<Role, string[]> = {
     'delivery:read:own',
     'delivery:retry:own',
     'delivery:publish:own',
-    'tokens:read:own',
-    'tokens:write:own',
+    // API tokens are SUPER_ADMIN-only (consumer read tokens are an agency-side onboarding
+    // concern, not a client task) — no 'tokens:*' here; enforced by requireSuperAdmin in token.routes.ts.
   ],
   // EDITOR: ['jobs:read','jobs:write','reviews:read','reviews:write'],  // future
 };
@@ -58,8 +58,8 @@ export const PERMISSION_CATALOG: PermissionInfo[] = [
   { key: 'delivery:read:own', label: 'View delivery jobs', group: 'Delivery' },
   { key: 'delivery:retry:own', label: 'Retry delivery', group: 'Delivery' },
   { key: 'delivery:publish:own', label: 'Publish to site', group: 'Delivery' },
-  { key: 'tokens:read:own', label: 'View API tokens', group: 'API tokens' },
-  { key: 'tokens:write:own', label: 'Manage API tokens', group: 'API tokens' },
+  { key: 'tokens:read', label: 'View API tokens', group: 'API tokens (super admin only)' },
+  { key: 'tokens:write', label: 'Manage API tokens', group: 'API tokens (super admin only)' },
 ];
 
 export function hasPermission(role: Role, permission: string): boolean {

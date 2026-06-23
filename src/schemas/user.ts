@@ -19,3 +19,11 @@ export const UpdateUserSchema = z.object({
   organizationId: z.coerce.number().int().positive().nullable().optional(), // super only
 });
 export type UpdateUserInput = z.infer<typeof UpdateUserSchema>;
+
+// Super-admin password reset. Omit `password` -> a strong temp password is generated and
+// returned once; supply one to set a specific password. Either way the user must change it
+// on next login (mustChangePassword) and all their sessions are invalidated (tokenVersion).
+export const ResetPasswordSchema = z.object({
+  password: PasswordSchema.optional(),
+});
+export type ResetPasswordInput = z.infer<typeof ResetPasswordSchema>;

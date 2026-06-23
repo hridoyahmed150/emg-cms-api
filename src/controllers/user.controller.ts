@@ -2,7 +2,7 @@ import type { Request, Response } from 'express';
 import { validated } from '../middleware/validate';
 import { parseId } from '../lib/http';
 import * as userService from '../services/user.service';
-import type { CreateUserInput, UpdateUserInput } from '../schemas/user';
+import type { CreateUserInput, UpdateUserInput, ResetPasswordInput } from '../schemas/user';
 
 export async function list(req: Request, res: Response): Promise<void> {
   res.json(await userService.listUsers(req.tenantId ?? null, Boolean(req.isSuper)));
@@ -30,6 +30,19 @@ export async function update(req: Request, res: Response): Promise<void> {
   const input = validated<UpdateUserInput>(req, 'body');
   res.json(
     await userService.updateUser(
+      parseId(req),
+      input,
+      req.tenantId ?? null,
+      Boolean(req.isSuper),
+      req.auth?.userId ?? null,
+    ),
+  );
+}
+
+export async function resetPassword(req: Request, res: Response): Promise<void> {
+  const input = validated<ResetPasswordInput>(req, 'body');
+  res.json(
+    await userService.resetUserPassword(
       parseId(req),
       input,
       req.tenantId ?? null,

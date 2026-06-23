@@ -84,6 +84,37 @@ describe('User management is SUPER_ADMIN-only', () => {
   });
 });
 
+describe('API tokens are SUPER_ADMIN-only', () => {
+  it('ADMIN gets 403 on every /tokens route', async () => {
+    const { token } = await makeOrgAdmin();
+    const auth = { Authorization: `Bearer ${token}` };
+
+    expect((await request(app).get('/api/v1/tokens').set(auth)).status).toBe(403);
+    expect(
+      (await request(app).post('/api/v1/tokens').set(auth).send({ name: 'x', scopes: ['jobs:read'] })).status,
+    ).toBe(403);
+    expect((await request(app).delete('/api/v1/tokens/1').set(auth)).status).toBe(403);
+  });
+
+  it('SUPER_ADMIN can list and create consumer tokens for an org', async () => {
+    const { token } = await makeSuper();
+    const { org } = await makeOrgAdmin();
+    const auth = { Authorization: `Bearer ${token}` };
+
+    const list = await request(app).get('/api/v1/tokens').set(auth);
+    expect(list.status).toBe(200);
+    expect(Array.isArray(list.body)).toBe(true);
+
+    // Consumer tokens are org-scoped → super admin must target an org via ?orgId.
+    const created = await request(app)
+      .post(`/api/v1/tokens?orgId=${org.id}`)
+      .set(auth)
+      .send({ name: 'EIS Astro', scopes: ['jobs:read', 'reviews:read'] });
+    expect(created.status).toBe(201);
+    expect(created.body.token).toBeTruthy();
+  });
+});
+
 describe('Password policy', () => {
   it('rejects a weak password with 422', async () => {
     const { token } = await makeSuper();
@@ -280,5 +311,73 @@ describe('Self-service password change (POST /auth/change-password)', () => {
       .post('/api/v1/auth/change-password')
       .send({ currentPassword: STRONG_PW, newPassword: 'NewStrongPass456!' });
     expect(res.status).toBe(401);
+  });
+});
+
+describe('Admin-driven password reset (POST /users/:id/reset-password)', () => {
+  it('generates a temp password (returned once), forces a change, and kills old sessions', async () => {
+    const { token: superToken } = await makeSuper();
+    const { user } = await makeOrgAdmin();
+
+    // The target logs in first → holds a refresh cookie.
+    const login = await request(app).post('/api/v1/auth/login').send({ email: user.email, password: STRONG_PW });
+    expect(login.status).toBe(200);
+    const cookie = login.headers['set-cookie'] as unknown as string;
+
+    const reset = await request(app)
+      .post(`/api/v1/users/${user.id}/reset-password`)
+      .set('Authorization', `Bearer ${superToken}`)
+      .send({});
+    expect(reset.status).toBe(200);
+    expect(reset.body.tempPassword).toBeTruthy();
+
+    // Old refresh cookie is now stale (tokenVersion bumped) → 401.
+    const after = await request(app).post('/api/v1/auth/refresh').set('Cookie', cookie);
+    expect(after.status).toBe(401);
+
+    // The temp password logs in and flags a forced change; the old password no longer works.
+    const reLogin = await request(app)
+      .post('/api/v1/auth/login')
+      .send({ email: user.email, password: reset.body.tempPassword });
+    expect(reLogin.status).toBe(200);
+    expect(reLogin.body.user.mustChangePassword).toBe(true);
+    expect(
+      (await request(app).post('/api/v1/auth/login').send({ email: user.email, password: STRONG_PW })).status,
+    ).toBe(401);
+  });
+
+  it('sets an explicit password without returning a temp one', async () => {
+    const { token: superToken } = await makeSuper();
+    const { user } = await makeOrgAdmin();
+
+    const res = await request(app)
+      .post(`/api/v1/users/${user.id}/reset-password`)
+      .set('Authorization', `Bearer ${superToken}`)
+      .send({ password: 'BrandNewPass789!' });
+    expect(res.status).toBe(200);
+    expect(res.body.tempPassword).toBeUndefined();
+
+    expect(
+      (await request(app).post('/api/v1/auth/login').send({ email: user.email, password: 'BrandNewPass789!' })).status,
+    ).toBe(200);
+  });
+
+  it('rejects a weak explicit password (422)', async () => {
+    const { token: superToken } = await makeSuper();
+    const { user } = await makeOrgAdmin();
+    const res = await request(app)
+      .post(`/api/v1/users/${user.id}/reset-password`)
+      .set('Authorization', `Bearer ${superToken}`)
+      .send({ password: 'short' });
+    expect(res.status).toBe(422);
+  });
+
+  it('ADMIN cannot reset passwords (403)', async () => {
+    const { user, token } = await makeOrgAdmin();
+    const res = await request(app)
+      .post(`/api/v1/users/${user.id}/reset-password`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+    expect(res.status).toBe(403);
   });
 });

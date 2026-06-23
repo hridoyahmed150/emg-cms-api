@@ -6,6 +6,7 @@ export default defineConfig({
     // Override DATABASE_URL to the dedicated test DB (does NOT touch dev data).
     // Set before modules load; dotenv won't override an already-set var.
     env: {
+      NODE_ENV: 'test',
       DATABASE_URL: 'postgresql://emg:dev_password@localhost:5433/emg_cms_test',
       LOG_LEVEL: 'silent',
       R2_BUCKET: 'test-bucket',

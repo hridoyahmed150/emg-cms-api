@@ -10,7 +10,7 @@ import {
 import { hashPassword } from '../lib/password';
 import { PasswordSchema } from '../schemas/password';
 import { recordAudit } from './audit.service';
-import type { CreateUserInput, UpdateUserInput } from '../schemas/user';
+import type { CreateUserInput, UpdateUserInput, ResetPasswordInput } from '../schemas/user';
 
 // User is NOT tenant-scoped; org filtering is applied manually (admins see only own org).
 // NOTE: all routes are SUPER_ADMIN-only (requireSuperAdmin), so in practice isSuper is
@@ -168,6 +168,48 @@ export async function updateUser(
   });
 
   return toPublic(updated);
+}
+
+/**
+ * Super-admin password reset. Generates a strong temp password (returned once) when none is
+ * supplied, or sets a specific one. Either way: forces a self-service change on next login
+ * (mustChangePassword) and invalidates every existing session (tokenVersion bump). Resetting a
+ * password never demotes/deletes, so the last-super-admin guard does not apply here.
+ */
+export async function resetUserPassword(
+  id: number,
+  input: ResetPasswordInput,
+  actorOrgId: number | null,
+  isSuper: boolean,
+  actorUserId: number | null,
+) {
+  const user = await prisma.user.findUnique({ where: { id } });
+  if (!user || (!isSuper && user.organizationId !== actorOrgId)) {
+    throw new NotFoundError('User not found');
+  }
+
+  const tempPassword = input.password ?? generateTempPassword();
+  const updated = await prisma.user.update({
+    where: { id },
+    data: {
+      passwordHash: await hashPassword(tempPassword),
+      mustChangePassword: true,
+      tokenVersion: { increment: 1 },
+    },
+  });
+
+  await recordAudit({
+    organizationId: user.organizationId,
+    userId: actorUserId,
+    action: 'user.reset_password',
+    subjectType: 'User',
+    subjectId: id,
+    payload: { generated: !input.password },
+  });
+
+  // Echo the generated temp password once (so the super admin can share it); never echo an
+  // admin-typed password back.
+  return { ...toPublic(updated), ...(input.password ? {} : { tempPassword }) };
 }
 
 export async function deleteUser(
